@@ -30,16 +30,52 @@ import (
 
 func main() { os.Exit(realMain()) }
 
+type options struct {
+	verbose, list, status bool
+	reset                 string
+	resetHit              bool // some account had the uid named by -reset
+}
+
 func realMain() int {
-	cfgPath := flag.String("config", defaultConfigPath(), "config file")
-	verbose := flag.Bool("v", false, "log POP3 commands and replies (password redacted)")
-	list := flag.Bool("list", false, "show messages on the server and their local status; downloads nothing")
-	status := flag.Bool("status", false, "show local state (failures, poison) without connecting")
-	reset := flag.String("reset", "", `forget the failure history of a UIDL ("all" for every one) so it is retried`)
+	cfgArg := flag.String("config", "", "config file, or a directory of *.json account files (default: ~/.config/popguard/conf.d)")
+	var o options
+	flag.BoolVar(&o.verbose, "v", false, "log POP3 commands and replies (password redacted)")
+	flag.BoolVar(&o.list, "list", false, "show messages on the server and their local status; downloads nothing")
+	flag.BoolVar(&o.status, "status", false, "show local state (failures, poison) without connecting")
+	flag.StringVar(&o.reset, "reset", "", `forget the failure history of a UIDL ("all" for every one) so it is retried`)
 	flag.Parse()
 
-	logger := log.New(os.Stderr, "popguard: ", log.LstdFlags)
-	cfg, err := loadConfig(*cfgPath)
+	paths, err := configPaths(*cfgArg)
+	if err != nil {
+		log.New(os.Stderr, "popguard: ", log.LstdFlags).Printf("config: %v", err)
+		return 2
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Like fetchmail, one bad account doesn't stop the others; the exit
+	// status reports the worst result.
+	worst := 0
+	for _, p := range paths {
+		if ctx.Err() != nil {
+			break
+		}
+		if len(paths) > 1 && (o.list || o.status) {
+			fmt.Printf("== %s ==\n", accountName(p))
+		}
+		worst = max(worst, runAccount(ctx, p, &o))
+	}
+	if o.reset != "" && o.reset != "all" && !o.resetHit && worst == 0 {
+		fmt.Fprintf(os.Stderr, "popguard: no failure record for uid %q\n", o.reset)
+		return 1
+	}
+	return worst
+}
+
+func runAccount(ctx context.Context, path string, o *options) int {
+	logger := log.New(os.Stderr, "popguard: "+accountName(path)+": ", log.LstdFlags)
+	cfg, err := loadConfig(path)
 	if err != nil {
 		logger.Printf("config: %v", err)
 		return 2
@@ -65,39 +101,36 @@ func realMain() int {
 		return 1
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	switch {
-	case *reset != "":
-		if *reset == "all" {
+	case o.reset != "":
+		if o.reset == "all" {
 			st.Failures = map[string]*Failure{}
-		} else if _, ok := st.Failures[*reset]; !ok {
-			logger.Printf("no failure record for uid %q", *reset)
-			return 1
+		} else if _, ok := st.Failures[o.reset]; !ok {
+			return 0 // realMain complains if no account had it
 		} else {
-			delete(st.Failures, *reset)
+			delete(st.Failures, o.reset)
 		}
+		o.resetHit = true
 		if err := st.save(); err != nil {
 			logger.Print(err)
 			return 1
 		}
-		fmt.Println("reset", *reset)
+		fmt.Println("reset", o.reset)
 		return 0
 
-	case *status:
+	case o.status:
 		printStatus(os.Stdout, cfg, st)
 		return 0
 
-	case *list:
-		if err := listMessages(ctx, newRunner(cfg, st, logger, *verbose), os.Stdout); err != nil {
+	case o.list:
+		if err := listMessages(ctx, newRunner(cfg, st, logger, o.verbose), os.Stdout); err != nil {
 			logger.Print(err)
 			return 1
 		}
 		return 0
 	}
 
-	r := newRunner(cfg, st, logger, *verbose)
+	r := newRunner(cfg, st, logger, o.verbose)
 	err = r.run(ctx)
 	s := r.stats
 	if s.delivered+s.redeleted+s.poisonSkipped+s.poisonDeleted+s.failures > 0 {

@@ -133,7 +133,7 @@ func (c *Config) finish() error {
 		return errors.New("user is required")
 	}
 	if c.PasswordFile != "" {
-		p := expandHome(c.PasswordFile)
+		p := c.resolvePath(c.PasswordFile)
 		if fi, err := os.Stat(p); err == nil && fi.Mode().Perm()&0o077 != 0 {
 			c.warnings = append(c.warnings, fmt.Sprintf("%s has mode %o; chmod 600 it", p, fi.Mode().Perm()))
 		}
@@ -231,10 +231,58 @@ func expandHome(p string) string {
 	return p
 }
 
-func defaultConfigPath() string {
+// resolvePath expands ~ and anchors a relative path at the directory of the
+// config file, so a config dir can be moved or run from cron's cwd.
+func (c *Config) resolvePath(p string) string {
+	p = expandHome(p)
+	if filepath.IsAbs(p) || c.path == "" {
+		return p
+	}
+	return filepath.Join(filepath.Dir(c.path), p)
+}
+
+func defaultConfigDir() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		base = filepath.Join(os.Getenv("HOME"), ".config")
 	}
-	return filepath.Join(base, "popguard", "config.json")
+	return filepath.Join(base, "popguard", "conf.d")
+}
+
+// configPaths lists the account files to process. An empty arg means the
+// default conf.d directory; a directory means its *.json files (sorted,
+// dotfiles skipped); anything else is a single config file.
+func configPaths(arg string) ([]string, error) {
+	if arg == "" {
+		arg = defaultConfigDir()
+	}
+	arg = expandHome(arg)
+	fi, err := os.Stat(arg)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.IsDir() {
+		return []string{arg}, nil
+	}
+	ents, err := os.ReadDir(arg)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, e := range ents {
+		n := e.Name()
+		if e.IsDir() || strings.HasPrefix(n, ".") || !strings.HasSuffix(n, ".json") {
+			continue
+		}
+		paths = append(paths, filepath.Join(arg, n))
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no *.json account files in %s", arg)
+	}
+	return paths, nil
+}
+
+// accountName is the config file name without its .json suffix; it prefixes log lines.
+func accountName(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), ".json")
 }

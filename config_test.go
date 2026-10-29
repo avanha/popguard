@@ -67,3 +67,42 @@ func TestLoadConfigWarnsOnReadablePassword(t *testing.T) {
 		t.Fatal("expected a permissions warning")
 	}
 }
+
+func TestPasswordFileRelativeToConfig(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "yahoo.pass"), []byte("hunter2\n"), 0o600)
+	cfgPath := filepath.Join(dir, "yahoo.json")
+	os.WriteFile(cfgPath, []byte(`{
+		"server": "pop.example.com", "user": "u", "password_file": "yahoo.pass",
+		"smtp_server": "localhost", "deliver_to": ["me@localhost"],
+		"state_file": "`+dir+`/st.json"
+	}`), 0o600)
+	c, err := loadConfig(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Password != "hunter2" {
+		t.Fatalf("password %q", c.Password)
+	}
+}
+
+func TestConfigPaths(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"b.json", "a.json", ".hidden.json", "notes.txt"} {
+		os.WriteFile(filepath.Join(dir, n), []byte("{}"), 0o600)
+	}
+	os.Mkdir(filepath.Join(dir, "sub.json"), 0o700)
+	got, err := configPaths(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || accountName(got[0]) != "a" || accountName(got[1]) != "b" {
+		t.Fatalf("got %v", got)
+	}
+	if one, _ := configPaths(got[1]); len(one) != 1 || one[0] != got[1] {
+		t.Fatalf("single file: %v", one)
+	}
+	if _, err := configPaths(t.TempDir()); err == nil {
+		t.Fatal("empty dir should be an error")
+	}
+}
