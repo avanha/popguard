@@ -1,0 +1,9 @@
+# built binaries
+/popguard
+/popguard-*
+
+# IntelliJ/GoLand project files
+*.iml
+*.ipr
+*.iws
+.idea/
