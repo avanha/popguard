@@ -104,11 +104,13 @@ func runAccount(ctx context.Context, path string, o *options) int {
 	switch {
 	case o.reset != "":
 		if o.reset == "all" {
-			st.Failures = map[string]*Failure{}
+			for u := range st.Failures {
+				st.forget(u)
+			}
 		} else if _, ok := st.Failures[o.reset]; !ok {
 			return 0 // realMain complains if no account had it
 		} else {
-			delete(st.Failures, o.reset)
+			st.forget(o.reset)
 		}
 		o.resetHit = true
 		if err := st.save(); err != nil {

@@ -56,6 +56,14 @@ func loadState(path string) (*State, error) {
 	return st, nil
 }
 
+// forget drops a message's failure record and its quarantined partial download.
+func (s *State) forget(uid string) {
+	if f := s.Failures[uid]; f != nil && f.Partial != "" {
+		os.Remove(f.Partial)
+	}
+	delete(s.Failures, uid)
+}
+
 // save writes atomically: a crash leaves either the old or the new file.
 func (s *State) save() error {
 	b, err := json.MarshalIndent(s, "", "  ")

@@ -134,7 +134,7 @@ func (r *runner) prune(msgs []msgInfo) {
 	}
 	for u := range r.st.Failures {
 		if !present[u] {
-			delete(r.st.Failures, u)
+			r.st.forget(u)
 		}
 	}
 }
@@ -300,7 +300,7 @@ func (r *runner) fetchOne(ctx context.Context, c *popClient, m msgInfo) (lost bo
 		return false, fmt.Errorf("delivering uid %s failed, left it on the server: %w", m.uid, derr)
 	}
 	r.st.Delivered[m.uid] = r.now()
-	delete(r.st.Failures, m.uid)
+	r.st.forget(m.uid)
 	if err := r.st.save(); err != nil {
 		return false, err
 	}

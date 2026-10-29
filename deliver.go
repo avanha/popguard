@@ -60,13 +60,25 @@ func (d smtpDeliverer) Deliver(ctx context.Context, msg []byte, envFrom string) 
 	if err != nil {
 		return err
 	}
-	if _, err := w.Write(msg); err != nil { // DotWriter: LF -> CRLF and dot-stuffing
+	if _, err := w.Write(normalizeNewlines(msg)); err != nil { // DotWriter: LF -> CRLF and dot-stuffing
 		return err
 	}
 	if err := w.Close(); err != nil { // this is where the MTA accepts or rejects
 		return err
 	}
 	return c.Quit()
+}
+
+// normalizeNewlines turns every CR or CRLF into LF. The SMTP DotWriter only
+// understands CRLF and LF, so a bare CR in the middle of a line would reach
+// the MTA as-is, and an MTA that treats it as a line break would see "\r.\r"
+// as the end of the message and read the rest as SMTP commands.
+func normalizeNewlines(msg []byte) []byte {
+	if !bytes.Contains(msg, []byte{'\r'}) {
+		return msg
+	}
+	msg = bytes.ReplaceAll(msg, []byte("\r\n"), []byte{'\n'})
+	return bytes.ReplaceAll(msg, []byte{'\r'}, []byte{'\n'})
 }
 
 type mdaDeliverer struct{ argv []string }
@@ -162,7 +174,7 @@ func headerHint(msg []byte) string {
 
 func cleanText(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r < ' ' || r == 0x7f {
+		if r < ' ' || (r >= 0x7f && r <= 0x9f) { // C0, DEL and C1 (U+009B is a CSI)
 			return ' '
 		}
 		return r

@@ -157,6 +157,7 @@ func (c *popClient) status(cmd string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", cmd, err)
 	}
+	line = cleanText(line) // server text ends up in logs and terminals
 	if c.trace != nil {
 		c.trace("< " + truncate(line, 200))
 	}
@@ -185,10 +186,21 @@ func (c *popClient) login(user, pass string) error {
 	return err
 }
 
+// Limits for UIDL/LIST replies. They are far beyond any real mailbox; they
+// only stop a server from streaming a listing forever. RFC 1939 caps a UIDL
+// at 70 characters, so a line over maxListLine is not a listing line.
+const (
+	maxListLines   = 500_000
+	maxListLine    = 512
+	listingTimeout = 5 * time.Minute
+)
+
 func (c *popClient) listing(name string) ([][2]string, error) {
 	if _, err := c.cmd(name, name); err != nil {
 		return nil, err
 	}
+	c.hard = time.Now().Add(listingTimeout)
+	defer func() { c.hard = time.Time{} }()
 	var out [][2]string
 	for {
 		l, err := c.readLine()
@@ -197,6 +209,12 @@ func (c *popClient) listing(name string) ([][2]string, error) {
 		}
 		if l == "." {
 			return out, nil
+		}
+		if len(l) > maxListLine {
+			return nil, fmt.Errorf("%s: %w: line of %d bytes", name, errRunaway, len(l))
+		}
+		if len(out) >= maxListLines {
+			return nil, fmt.Errorf("%s: %w: more than %d entries", name, errRunaway, maxListLines)
 		}
 		f := strings.Fields(l)
 		if len(f) < 2 {
