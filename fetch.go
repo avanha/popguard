@@ -16,6 +16,8 @@ const deliveredMemory = 7 * 24 * time.Hour
 
 type runStats struct {
 	delivered, redeleted, poisonSkipped, poisonDeleted, failures int
+	onServer                                                     int  // messages in the maildrop at the start of the run
+	listed                                                       bool // the inventory succeeded at least once
 }
 
 type runner struct {
@@ -162,6 +164,9 @@ func (r *runner) session(ctx context.Context) (done bool, err error) {
 	msgs, err := c.inventory()
 	if err != nil {
 		return false, err
+	}
+	if !r.stats.listed {
+		r.stats.onServer, r.stats.listed = len(msgs), true
 	}
 	r.prune(msgs)
 	if err := r.st.save(); err != nil {

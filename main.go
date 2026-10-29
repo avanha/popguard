@@ -135,9 +135,9 @@ func runAccount(ctx context.Context, path string, o *options) int {
 	r := newRunner(cfg, st, logger, o.verbose)
 	err = r.run(ctx)
 	s := r.stats
-	if s.delivered+s.redeleted+s.poisonSkipped+s.poisonDeleted+s.failures > 0 {
-		logger.Printf("summary: %d delivered, %d re-deleted, %d poison skipped, %d poison deleted, %d failures",
-			s.delivered, s.redeleted, s.poisonSkipped, s.poisonDeleted, s.failures)
+	if s.listed { // always, so a quiet mailbox still leaves a heartbeat in the log
+		logger.Printf("summary: %d messages on server, %d delivered, %d re-deleted, %d poison skipped, %d poison deleted, %d failures",
+			s.onServer, s.delivered, s.redeleted, s.poisonSkipped, s.poisonDeleted, s.failures)
 	}
 	if err != nil {
 		logger.Printf("error: %v", err)

@@ -148,7 +148,13 @@ launchd sets `HOME`, so the default `~/.config/popguard/conf.d` is found. The ag
 runs only while you are logged in. If the config dir isn't in `~/.config`, add
 `-config /full/path` to `ProgramArguments`.
 
-It's quiet when there's nothing to do. A poison message logs one line per run:
+Each run that reaches the server ends with a summary line, even when the mailbox is empty:
+
+```
+popguard: yahoo: 2026/10/28 21:16:30 summary: 0 messages on server, 0 delivered, 0 re-deleted, 0 poison skipped, 0 poison deleted, 0 failures
+```
+
+A poison message also logs one line per run:
 
 ```
 POISON skipped: uid AL3x..., 13863 bytes, 2 failures, last 5m0s ago (server stalled: no data from server for 1m0s) From: "Kitten Dispatch" <info@...> | Subject: Gourmet Cat Treats!
